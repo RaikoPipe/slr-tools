@@ -1,4 +1,5 @@
 from rapidfuzz import fuzz
+from tqdm import tqdm
 from deduplicator import find_all_duplicates_to_drop
 import pandas as pd
 from typing import Optional
@@ -12,12 +13,19 @@ def find_all_fuzzy_duplicated_titles(
     exclusion_log: Optional[ExclusionLog] = None,
 ) -> pd.DataFrame:
     duplicated_titles: list[list[str]] = []
-    for _idx, item in library.iterrows():
-        if item["source_id"] in [item_id for group in duplicated_titles for item_id in group]:
+    seen_ids: set[str] = set()
+
+    iterator = library.iterrows()
+    if selection_method == "auto":
+        iterator = tqdm(iterator, total=len(library), desc="Fuzzy dedup", unit="paper")
+
+    for _idx, item in iterator:
+        if item["source_id"] in seen_ids:
             continue
         dupes_for_item = get_fuzzy_duplicated_titles_fuzz(item, library, threshold=threshold)
         if dupes_for_item:
             duplicated_titles.append(dupes_for_item)
+            seen_ids.update(dupes_for_item)
 
     return find_all_duplicates_to_drop(
         duplicated_titles,

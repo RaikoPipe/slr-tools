@@ -11,7 +11,7 @@ def get_duplicates_to_drop(
 ) -> Optional[pd.DataFrame]:
     if selection_method == "auto":
         to_keep_idx = None
-        for preferred_type in ["article", "proceedings-article", "preprint"]:
+        for preferred_type in ["article", "Conference Paper", "preprint"]:
             candidates = duplicates[duplicates["doc_type"] == preferred_type]
             if len(candidates) > 0:
                 to_keep_idx = candidates.sort_values(by="publication_date").iloc[0].name
