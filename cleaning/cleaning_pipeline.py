@@ -112,9 +112,30 @@ def drop_invalid_types(
 
 def drop_excluded_languages(
     df: pd.DataFrame,
+    selection_method: str = "human",
     exclusion_log: Optional[ExclusionLog] = None,
+    unknown_language_titles: Optional[list] = None,
 ) -> pd.DataFrame:
-    mask = ~df["language"].isin(VALID_LANGUAGES)
+    lang_values = df["language"].fillna("").astype(str).str.strip()
+    empty_lang_mask = lang_values == ""
+
+    if selection_method == "human":
+        df = df.copy()
+        for idx, row in df[empty_lang_mask].iterrows():
+            title = str(row.get("title", "N/A"))
+            print(f"\nUnknown language for: {title[:120]!r}")
+            lang = input("Enter language identifier (e.g. 'en', 'de'), or press Enter to skip: ").strip()
+            if lang:
+                df.at[idx, "language"] = lang
+        mask = ~df["language"].fillna("").astype(str).str.strip().isin(VALID_LANGUAGES)
+        decided_by = "human"
+    else:
+        if unknown_language_titles is not None:
+            for _, row in df[empty_lang_mask].iterrows():
+                unknown_language_titles.append(str(row.get("title", "N/A")))
+        mask = ~lang_values.isin(VALID_LANGUAGES) & ~empty_lang_mask
+        decided_by = "auto"
+
     excluded = df[mask]
     if exclusion_log is not None:
         for _, row in excluded.iterrows():
@@ -124,7 +145,7 @@ def drop_excluded_languages(
                 title=str(row.get("title", "")),
                 exclusion_step="language",
                 exclusion_detail=f"language '{row.get('language', '')}' not in {sorted(VALID_LANGUAGES)}",
-                decided_by="auto",
+                decided_by=decided_by,
             )
     return df[~mask]
 
@@ -141,6 +162,7 @@ def run_pipeline(
     print(f"Loaded {n_start} papers from {input_path}")
 
     log = ExclusionLog()
+    unknown_language_titles: list[str] = []
 
     steps = [
         ("DOI duplicates",         lambda d: drop_doi_duplicates(d, selection_method, log)),
@@ -149,7 +171,7 @@ def run_pipeline(
         ("retracted",              lambda d: drop_retracted(d, log)),
         (f"year < {min_year}",     lambda d: drop_before_year(d, min_year, log)),
         ("invalid type",           lambda d: drop_invalid_types(d, log)),
-        ("excluded language",      lambda d: drop_excluded_languages(d, log)),
+        ("excluded language",      lambda d: drop_excluded_languages(d, selection_method, log, unknown_language_titles)),
     ]
 
     for label, fn in steps:
@@ -158,6 +180,11 @@ def run_pipeline(
         print(f"  Dropped {before - len(df):>4} papers — {label}")
 
     print(f"Final: {len(df)} papers ({n_start - len(df)} removed)")
+
+    if unknown_language_titles:
+        print(f"\nWarning: {len(unknown_language_titles)} paper(s) kept with unknown/empty language (skipped language filter in auto mode):")
+        for title in unknown_language_titles:
+            print(f"  - {title[:120]!r}")
 
     df.to_csv(output_path, index=False)
     print(f"Saved to {output_path}")
